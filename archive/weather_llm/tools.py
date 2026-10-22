@@ -1,11 +1,9 @@
 """OpenWeather adapter using the same endpoint and fields as weather-ts."""
-import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import urlopen
+
+import httpx
 
 URL = 'https://api.openweathermap.org/data/2.5/weather'
 
@@ -48,7 +46,7 @@ def parse_weather(data):
     }
 
 
-def get_weather(city):
+async def get_weather(city):
     if not isinstance(city, str) or not city.strip():
         return 'Укажите город, например Rehovot,IL.'
     city = city.strip()
@@ -57,17 +55,19 @@ def get_weather(city):
     key = os.getenv('OPENWEATHER_API_KEY') or os.getenv('VITE_WEATHER_API_KEY')
     if not key or not key.strip():
         return 'Не задан OPENWEATHER_API_KEY (поддерживается также VITE_WEATHER_API_KEY из weather-ts).'
-    query = urlencode({'q': city, 'appid': key.strip(), 'units': 'metric'})
+    params = {'q': city, 'appid': key.strip(), 'units': 'metric'}
     try:
-        with urlopen(f'{URL}?{query}', timeout=15) as response:
-            weather = parse_weather(json.load(response))
-    except HTTPError as error:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(URL, params=params)
+            response.raise_for_status()
+            weather = parse_weather(response.json())
+    except httpx.HTTPStatusError as error:
         return {
             401: 'OpenWeather отклонил API-ключ. Проверьте ключ и его активацию.',
             404: 'Город не найден. Уточните название и код страны, например London,GB.',
             429: 'Превышен лимит запросов OpenWeather. Повторите позже.',
-        }.get(error.code, 'Сервис погоды временно недоступен. Повторите позже.')
-    except (URLError, TimeoutError, OSError):
+        }.get(error.response.status_code, 'Сервис погоды временно недоступен. Повторите позже.')
+    except (httpx.RequestError, TimeoutError, OSError):
         return 'Не удалось подключиться к OpenWeather. Проверьте соединение.'
     except (ValueError, TypeError, OverflowError):
         return 'Сервис погоды вернул некорректный ответ.'

@@ -1,5 +1,6 @@
 """Weather chatbot patterned after Downloads/07_SortedContainers/llm."""
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -10,13 +11,16 @@ from tools import TOOLS, get_weather
 MODEL_NAME = os.getenv('OLLAMA_MODEL', 'phi3')
 
 
-def chat_request(messages):
+async def chat_request(messages):
     # Lazy import lets the offline tests and --city run without the Ollama SDK.
-    from ollama import Client
-    client = Client(host=os.getenv('OLLAMA_HOST', 'http://localhost:11434'), timeout=180)
-    stream = client.chat(model=MODEL_NAME, messages=messages, stream=True,
-                         options={'temperature': 0})
-    return ''.join(chunk['message']['content'] for chunk in stream)
+    from ollama import AsyncClient
+    client = AsyncClient(host=os.getenv('OLLAMA_HOST', 'http://localhost:11434'), timeout=180)
+    stream = await client.chat(model=MODEL_NAME, messages=messages, stream=True,
+                               options={'temperature': 0})
+    chunks = []
+    async for chunk in stream:
+        chunks.append(chunk['message']['content'])
+    return ''.join(chunks)
 
 
 def parse_tool_call(text):
@@ -33,7 +37,7 @@ def parse_tool_call(text):
     return result if isinstance(result, dict) and 'tool' in result else None
 
 
-def call_tool(tool_call):
+async def call_tool(tool_call):
     name = tool_call.get('tool')
     if not isinstance(name, str) or name not in TOOLS:
         return 'Неизвестный инструмент. Доступен get_weather.'
@@ -42,19 +46,19 @@ def call_tool(tool_call):
         return 'Для get_weather нужен только аргумент city.'
     if not isinstance(arguments['city'], str) or not arguments['city'].strip():
         return 'Укажите непустое название города.'
-    return TOOLS[name](**arguments)
+    return await TOOLS[name](**arguments)
 
 
-def answer_turn(messages, text, request=None):
+async def answer_turn(messages, text, request=None):
     """Commit history only after a successful model response; isolate tool context."""
     request = request or chat_request
     pending = messages + [{'role': 'user', 'content': text}]
-    reply = request(pending)
+    reply = await request(pending)
     tool_call = parse_tool_call(reply)
     if tool_call is None:
         messages.extend([pending[-1], {'role': 'assistant', 'content': reply}])
         return reply
-    result = call_tool(tool_call)
+    result = await call_tool(tool_call)
     # Keep transient results out of subsequent turns (no stale privileged context).
     tool_context = pending + [
         {'role': 'assistant', 'content': reply},
@@ -63,7 +67,7 @@ def answer_turn(messages, text, request=None):
          'do not invent measurements. Preserve the source and observation date.'},
     ]
     try:
-        final = request(tool_context)
+        final = await request(tool_context)
         if not final.strip() or parse_tool_call(final) is not None:
             final = result
     except Exception:
@@ -73,18 +77,18 @@ def answer_turn(messages, text, request=None):
     return final
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(description='Ollama weather chat, based on weather-ts API')
     parser.add_argument('--city', help='Query OpenWeather directly, without Ollama')
     args = parser.parse_args()
     if args.city is not None:
-        print(get_weather(args.city))
+        print(await get_weather(args.city))
         return
     messages = [{'role': 'system', 'content': SYSTEM_CONTENT}]
     print(f'Погодный чат ({MODEL_NAME}). Пример: «Какая погода в Rehovot,IL?» Выход: exit.')
     while True:
         try:
-            user_input = input('Вы: ').strip()
+            user_input = (await asyncio.to_thread(input, 'Вы: ')).strip()
         except (EOFError, KeyboardInterrupt):
             print('\nДо свидания!')
             break
@@ -94,7 +98,7 @@ def main():
             continue
         print('Ожидание Ollama...', flush=True)
         try:
-            reply = answer_turn(messages, user_input)
+            reply = await answer_turn(messages, user_input)
         except ImportError:
             print('Установите зависимости: python -m pip install -r requirements.txt')
             continue
@@ -108,6 +112,6 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        asyncio.run(main())
     except KeyboardInterrupt:
         sys.exit(130)
