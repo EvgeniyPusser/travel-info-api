@@ -4,7 +4,7 @@
 
 - `models/travel_model.py` — модели `TravelInfoRequest` и `TravelInfoResponse`.
 - `loggers/logger_req.py` — логгер `app` с уровнем `DEBUG`.
-- `services/geography.py` — столица и валюта страны через REST Countries v5.
+- `services/countries.py` — столица и валюта страны через REST Countries v5.
 - `services/weather.py` — погода в городе через OpenWeather.
 - `services/currency.py` — курс между валютами через Fixer.
 - `services/travel.py` — `get_travel_info(request)` собирает ответ по флагам `is_capital`, `is_weather`, `is_currency`.

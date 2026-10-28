@@ -5,7 +5,7 @@ import pytest
 
 from models.travel_model import TravelInfoRequest
 from services import travel
-from services.geography import CountryInfo
+from services.countries import CountryInfo
 
 
 @pytest.mark.parametrize('is_capital', [True, False])

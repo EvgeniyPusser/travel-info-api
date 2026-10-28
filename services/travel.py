@@ -2,7 +2,7 @@ from fastapi import HTTPException
 
 from models.travel_model import TravelInfoRequest, TravelInfoResponse
 from services.currency import get_exchange_rate
-from services.geography import get_country_info
+from services.countries import get_country_info
 from services.weather import get_weather_summary
 
 
